@@ -1,14 +1,18 @@
-myshell : myshell.o execute.o globals.o parser.o
-	cc -std=c99 -Wall -pedantic -Werror -o myshell myshell.o execute.o globals.o parser.o -lm
+# A Makefile to build our 'myshell' project.
 
-myshell.o : myshell.c myshell.h
-	cc -std=c99 -Wall -pedantic -Werror -c myshell.c
+PROJECT = myshell
+HEADERS = $(PROJECT).h
+OBJ = $(PROJECT).o execute.o globals.o parser.o
 
-execute.o : execute.c myshell.h
-	cc -std=c99 -Wall -pedantic -Werror -c execute.c
+C99 = cc -std=c99
+CFLAGS = -Wall -pedantic -Werror
+COMPILE = $(C99) $(CFLAGS)
 
-globals.o : globals.c myshell.h
-	cc -std=c99 -Wall -pedantic -Werror -c globals.c
+$(PROJECT): $(OBJ)
+	$(COMPILE) -o $(PROJECT) $(OBJ) -lm
 
-parser.o : parser.c myshell.h
-	cc -std=c99 -Wall -pedantic -Werror -c parser.c
+%.o : %.c $(HEADERS)
+	$(COMPILE) -c $<
+
+clean:
+	rm -f $(PROJECT) $(OBJ)
