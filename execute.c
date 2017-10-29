@@ -1,4 +1,5 @@
 #include "myshell.h"
+#include <sys/wait.h>
 
 /*
    CITS2002 Project 2 2017
@@ -13,16 +14,44 @@
 //  THAT IT HOLDS, RETURNING THE APPROPRIATE EXIT-STATUS.
 //  READ print_shellcmd0() IN globals.c TO SEE HOW TO TRAVERSE THE COMMAND-TREE
 
-int execute_shellcmd(SHELLCMD *t)
+void ExitWithError(char* message)
 {
-    int  exitstatus;
+	perror(message);
+	exit(1);
+}
 
-    if(t == NULL) {			// hmmmm, that's a problem
-	exitstatus	= EXIT_FAILURE;
-    }
-    else {				// normal, exit commands
-	exitstatus	= EXIT_SUCCESS;
-    }
+void CallExternalProcess(char* process_name, char* exe_argv[])
+{
+	int pid = fork();
+	printf("Process ID: %d\n", pid);
+	if (pid < 0)
+		ExitWithError("Unable to fork process");
 
-    return exitstatus;
+	if (pid == 0)
+	{
+		execv(process_name, exe_argv);
+		ExitWithError("Unable to execute new process");
+	}
+
+	if (pid > 0)
+	{
+		int status = 0;
+		wait(&status);
+	}
+	printf("Exit ID: %d\n", pid);
+}
+
+void execute_node(SHELLCMD *t)
+{
+	char* cmd_name = t->argv[0];
+	CallExternalProcess(cmd_name, t->argv);
+}
+
+int execute_shellcmd(SHELLCMD* t)
+{
+	if (t == NULL)
+		return EXIT_FAILURE;
+
+	execute_node(t);
+	return EXIT_SUCCESS;
 }
