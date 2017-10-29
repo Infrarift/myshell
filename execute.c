@@ -1,5 +1,6 @@
 #include "myshell.h"
 #include <sys/wait.h>
+#include <sys/time.h>
 
 /*
    CITS2002 Project 2 2017
@@ -15,6 +16,9 @@
 //  READ print_shellcmd0() IN globals.c TO SEE HOW TO TRAVERSE THE COMMAND-TREE
 
 int prev_exit_status = EXIT_SUCCESS;
+bool activate_timer = false;
+bool time_next_command = false;
+
 
 void ExitWithError(char* message)
 {
@@ -157,7 +161,8 @@ int execute_internal_cd(SHELLCMD *t)
 
 void execute_internal_time()
 {
-	printf("INTERNAL TIME");
+	printf("INTERNAL TIME\n");
+	activate_timer = true;
 }
 
 int execute_internal_command(SHELLCMD *t)
@@ -174,8 +179,6 @@ int execute_internal_command(SHELLCMD *t)
 
 	return EXIT_SUCCESS;
 }
-
-
 
 int execute_node(SHELLCMD *t)
 {
@@ -194,12 +197,12 @@ int execute_node(SHELLCMD *t)
 		exit_status = CallExternalProcess(cmd_name, t->argv);
 	else
 	{
-		char* new_str = malloc(strlen(CDPATH) + 1);
-		strcpy(new_str, CDPATH);
+		char* new_str = malloc(strlen(PATH) + 1);
+		strcpy(new_str, PATH);
 
 		int path_size = 1000;
 		char **paths = malloc(path_size);
-		split(PATH, ":", paths);
+		split(new_str, ":", paths);
 		for (int i = 0; i < path_size; i++)
 		{
 			if (paths[i] == NULL) {
@@ -225,10 +228,32 @@ int execute_node(SHELLCMD *t)
 
 int execute_shellcmd(SHELLCMD* t)
 {
+	struct timeval tvalBefore, tvalAfter;
+	if (time_next_command)
+	{
+		gettimeofday(&tvalBefore, NULL);
+	}
+
 	if (t == NULL)
 		prev_exit_status = EXIT_FAILURE;
 	else
 		prev_exit_status = execute_node(t);
+
+	if (time_next_command)
+	{
+		gettimeofday(&tvalAfter, NULL);
+		time_next_command = false;
+		int sec_duration = (tvalAfter.tv_sec - tvalBefore.tv_sec) * 1000;
+		int usec_duration = (tvalAfter.tv_usec - tvalBefore.tv_usec) / 1000;
+		int ms_duration = sec_duration + usec_duration;
+		printf("COMMAND TIME: %ims\n", ms_duration);
+	}
+
+	if (activate_timer)
+	{
+		time_next_command = true;
+		activate_timer = false;
+	}
 
 	return prev_exit_status;
 }
