@@ -81,9 +81,26 @@ void join_str(char* dest, char* str1, char* str2)
 	printf("%s\n", origin);
 }
 
+bool is_internal_cmd(SHELLCMD *t)
+{
+	char* cmd_name = t->argv[0];
+	if (strcmp(cmd_name, "exit") == 0)
+	{
+		return true;
+	}
+	return false;
+}
+
 void execute_node(SHELLCMD *t)
 {
 	char* cmd_name = t->argv[0];
+
+	// Check if node is an internal command
+	if (is_internal_cmd(t))
+	{
+		printf("INTERNAL COMMAND");
+		return;
+	}
 
 	// Direct reference command (begins with /)
 	if (cmd_name[0] == '/')
