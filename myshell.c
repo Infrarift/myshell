@@ -46,7 +46,7 @@ int main(int argc, char* argv[])
 		if (t != NULL)
 		{
 			//  WE COULD DISPLAY THE PARSED COMMAND-TREE, HERE, BY CALLING:
-			print_shellcmd(t);
+			// print_shellcmd(t);
 			exitstatus = execute_shellcmd(t);
 			free_shellcmd(t);
 		}

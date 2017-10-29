@@ -22,8 +22,8 @@ bool time_next_command = false;
 
 void ExitWithError(char* message)
 {
-	perror(message);
-	exit(1);
+	// perror(message);
+	exit(EXIT_FAILURE);
 }
 
 void split(char* str, const char* delimiter, char* result[])
@@ -38,13 +38,12 @@ void split(char* str, const char* delimiter, char* result[])
 	}
 }
 
-int CallExternalProcess(char* process_name, char* exe_argv[])
+int call_ext_process(char* process_name, char* exe_argv[])
 {
 	int pid = fork();
 	int status = 0;
-	// int exit_status = EXIT_FAILURE;
 
-	printf("Process ID: %d\n", pid);
+	// printf("Process ID: %d\n", pid);
 	if (pid < 0)
 		ExitWithError("Unable to fork process");
 
@@ -58,13 +57,11 @@ int CallExternalProcess(char* process_name, char* exe_argv[])
 	{
 		wait(&status);
 	}
-	printf("Exit ID: %d, Status: %d\n", pid, status);
 	return status;
 }
 
 void join_str(char* dest, char* str1, char* str2)
 {
-	char* origin = dest;
 	while (*str1 != '\0')
 	{
 		*dest = *str1;
@@ -84,7 +81,6 @@ void join_str(char* dest, char* str1, char* str2)
 	}
 
 	*dest = '\0';
-	printf("SPLIT: %s\n", origin);
 }
 
 char *get_cmd_name(SHELLCMD *t)
@@ -111,7 +107,6 @@ void execute_internal_exit(SHELLCMD *t)
 {
 	if (t->argc <= 2) {
 		int exit_code = t->argc == 2 ? atoi(t->argv[1]) : prev_exit_status;
-		printf("INTERNAL EXIT: %d\n", exit_code);
 		exit(exit_code);
 	}
 }
@@ -120,11 +115,7 @@ int execute_internal_cd(SHELLCMD *t)
 {
 	if (t->argc <= 2) {
 		char* target_dir = t->argc == 2 ? t->argv[1] : HOME;
-		printf("INTERNAL CD: %s\n", target_dir);
-
-
 		int result = EXIT_FAILURE;
-
 		if (target_dir[0] == '/')
 			result = chdir(target_dir);
 		else
@@ -142,18 +133,13 @@ int execute_internal_cd(SHELLCMD *t)
 
 				char dest[100];
 				join_str(dest, paths[i], target_dir);
-				// printf("SEARCH PATH AT %s\n", paths[i]);
 				result = chdir(dest);
 				if (result == EXIT_SUCCESS)
-				{
-					printf("FOUND PATH AT %s\n", dest);
 					break;
-				}
 			}
 			free(paths);
 			free(new_str);
 		}
-		printf("RESULT CD: %d\n", result);
 		return result;
 	}
 	return EXIT_FAILURE;
@@ -180,6 +166,8 @@ int execute_internal_command(SHELLCMD *t)
 	return EXIT_SUCCESS;
 }
 
+
+
 int execute_node(SHELLCMD *t)
 {
 	char* cmd_name = t->argv[0];
@@ -194,7 +182,7 @@ int execute_node(SHELLCMD *t)
 
 	// Direct reference command (begins with /)
 	if (cmd_name[0] == '/')
-		exit_status = CallExternalProcess(cmd_name, t->argv);
+		exit_status = call_ext_process(cmd_name, t->argv);
 	else
 	{
 		char* new_str = malloc(strlen(PATH) + 1);
@@ -206,14 +194,14 @@ int execute_node(SHELLCMD *t)
 		for (int i = 0; i < path_size; i++)
 		{
 			if (paths[i] == NULL) {
-				printf("%s\n", "BREAK");
+				// printf("%s\n", "BREAK");
 				break;
 			}
 
-			printf("%s\n", paths[i]);
+			// printf("%s\n", paths[i]);
 			char dest[500];
 			join_str(dest, paths[i], cmd_name);
-			int exit_status = CallExternalProcess(dest, t->argv);
+			int exit_status = call_ext_process(dest, t->argv);
 			if (exit_status == EXIT_SUCCESS)
 			{
 				return exit_status;
@@ -224,6 +212,36 @@ int execute_node(SHELLCMD *t)
 		return EXIT_FAILURE;
 	}
 	return exit_status;
+}
+
+int execute_trav_cmd(SHELLCMD *t)
+{
+	print_shellcmd(t);
+	printf("\n");
+	// Traverse and execute each command
+	if (t->type == CMD_AND || t->type == CMD_OR || t->type == CMD_SEMICOLON)
+	{
+		int left_result = execute_trav_cmd(t->left);
+		int right_result = EXIT_FAILURE;
+
+		if (t->type == CMD_AND && left_result == EXIT_SUCCESS)
+			right_result = execute_trav_cmd(t->right);
+
+		if (t->type == CMD_OR && left_result == EXIT_FAILURE)
+			right_result = execute_trav_cmd(t->right);
+
+		if (t->type == CMD_SEMICOLON)
+			right_result = execute_trav_cmd(t->right);
+
+		return right_result;
+	}
+
+	if (t->type == CMD_COMMAND)
+	{
+		return execute_node(t);
+	}
+
+	return EXIT_SUCCESS;
 }
 
 int execute_shellcmd(SHELLCMD* t)
@@ -237,7 +255,7 @@ int execute_shellcmd(SHELLCMD* t)
 	if (t == NULL)
 		prev_exit_status = EXIT_FAILURE;
 	else
-		prev_exit_status = execute_node(t);
+		prev_exit_status = execute_trav_cmd(t);
 
 	if (time_next_command)
 	{
