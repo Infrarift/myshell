@@ -80,7 +80,7 @@ void join_str(char* dest, char* str1, char* str2)
 	}
 
 	*dest = '\0';
-	printf("%s\n", origin);
+	printf("SPLIT: %s\n", origin);
 }
 
 char *get_cmd_name(SHELLCMD *t)
@@ -112,9 +112,47 @@ void execute_internal_exit(SHELLCMD *t)
 	}
 }
 
-void execute_internal_cd()
+int execute_internal_cd(SHELLCMD *t)
 {
-	printf("INTERNAL CD");
+	if (t->argc <= 2) {
+		char* target_dir = t->argc == 2 ? t->argv[1] : HOME;
+		printf("INTERNAL CD: %s\n", target_dir);
+
+
+		int result = EXIT_FAILURE;
+
+		if (target_dir[0] == '/')
+			result = chdir(target_dir);
+		else
+		{
+			char* new_str = malloc(strlen(CDPATH) + 1);
+			strcpy(new_str, CDPATH);
+
+			int path_size = 1000;
+			char **paths = malloc(path_size);
+			split(new_str, ":", paths);
+			for (int i = 0; i < path_size; i++)
+			{
+				if (paths[i] == NULL)
+					break;
+
+				char dest[100];
+				join_str(dest, paths[i], target_dir);
+				// printf("SEARCH PATH AT %s\n", paths[i]);
+				result = chdir(dest);
+				if (result == EXIT_SUCCESS)
+				{
+					printf("FOUND PATH AT %s\n", dest);
+					break;
+				}
+			}
+			free(paths);
+			free(new_str);
+		}
+		printf("RESULT CD: %d\n", result);
+		return result;
+	}
+	return EXIT_FAILURE;
 }
 
 void execute_internal_time()
@@ -126,7 +164,7 @@ int execute_internal_command(SHELLCMD *t)
 {
 	char *cmd_name = get_cmd_name(t);
 	if (strcmp(cmd_name, "cd") == 0)
-		execute_internal_cd();
+		execute_internal_cd(t);
 
 	if (strcmp(cmd_name, "time") == 0)
 		execute_internal_time();
@@ -156,13 +194,13 @@ int execute_node(SHELLCMD *t)
 		exit_status = CallExternalProcess(cmd_name, t->argv);
 	else
 	{
-		// Search the PATH for the command and try to execute.
-		char *paths[1000];
-		// for (int i = 0; i < 100; i++)
-			// paths[i] == NULL;
+		char* new_str = malloc(strlen(CDPATH) + 1);
+		strcpy(new_str, CDPATH);
 
+		int path_size = 1000;
+		char **paths = malloc(path_size);
 		split(PATH, ":", paths);
-		for (int i = 0; i < 1000; i++)
+		for (int i = 0; i < path_size; i++)
 		{
 			if (paths[i] == NULL) {
 				printf("%s\n", "BREAK");
@@ -178,6 +216,8 @@ int execute_node(SHELLCMD *t)
 				return exit_status;
 			}
 		}
+		free(paths);
+		free(new_str);
 		return EXIT_FAILURE;
 	}
 	return exit_status;
