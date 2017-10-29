@@ -20,9 +20,24 @@ void ExitWithError(char* message)
 	exit(1);
 }
 
-void CallExternalProcess(char* process_name, char* exe_argv[])
+void split(char* str, const char* delimiter, char* result[])
+{
+	int i = 0;
+	char* token = strtok(str, delimiter);
+	while (token != NULL)
+	{
+		result[i] = token;
+		token = strtok(NULL, delimiter);
+		i++;
+	}
+}
+
+int CallExternalProcess(char* process_name, char* exe_argv[])
 {
 	int pid = fork();
+	int status = 0;
+	// int exit_status = EXIT_FAILURE;
+
 	printf("Process ID: %d\n", pid);
 	if (pid < 0)
 		ExitWithError("Unable to fork process");
@@ -35,16 +50,69 @@ void CallExternalProcess(char* process_name, char* exe_argv[])
 
 	if (pid > 0)
 	{
-		int status = 0;
 		wait(&status);
 	}
-	printf("Exit ID: %d\n", pid);
+	printf("Exit ID: %d, Status: %d\n", pid, status);
+	return status;
+}
+
+void join_str(char* dest, char* str1, char* str2)
+{
+	char* origin = dest;
+	while (*str1 != '\0')
+	{
+		*dest = *str1;
+		dest++;
+		str1++;
+	}
+
+	*dest = '/';
+	dest++;
+
+	while (*str2 != '\0')
+
+	{
+		*dest = *str2;
+		dest++;
+		str2++;
+	}
+
+	*dest = '\0';
+	printf("%s\n", origin);
 }
 
 void execute_node(SHELLCMD *t)
 {
 	char* cmd_name = t->argv[0];
-	CallExternalProcess(cmd_name, t->argv);
+
+	// Direct reference command (begins with /)
+	if (cmd_name[0] == '/')
+		CallExternalProcess(cmd_name, t->argv);
+	else
+	{
+		// Search the PATH for the command and try to execute.
+		char *paths[1000];
+		// for (int i = 0; i < 100; i++)
+			// paths[i] == NULL;
+
+		split(PATH, ":", paths);
+		for (int i = 0; i < 1000; i++)
+		{
+			if (paths[i] == NULL) {
+				printf("%s\n", "BREAK");
+				break;
+			}
+
+			printf("%s\n", paths[i]);
+			char dest[500];
+			join_str(dest, paths[i], cmd_name);
+			int exit_status = CallExternalProcess(dest, t->argv);
+			if (exit_status == EXIT_SUCCESS)
+			{
+				break;
+			}
+		}
+	}
 }
 
 int execute_shellcmd(SHELLCMD* t)
