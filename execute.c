@@ -1,6 +1,9 @@
 #include "myshell.h"
 #include <sys/wait.h>
 #include <sys/time.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <fcntl.h>
 
 /*
    CITS2002 Project 2 2017
@@ -214,26 +217,58 @@ int execute_node(SHELLCMD *t)
 	return exit_status;
 }
 
+void create_redirect_output(char* file_name)
+{
+	int file = open(file_name, O_CREAT | O_WRONLY | O_TRUNC);
+	dup2(file, 1);
+	close(file);
+}
+
 int execute_trav_cmd(SHELLCMD *t)
 {
-	print_shellcmd(t);
-	printf("\n");
+	// print_shellcmd(t);
+	// printf("\n");
 	// Traverse and execute each command
+	int file = 0;
+	int exit_status = EXIT_SUCCESS;
+
+	if (t->outfile != NULL)
+	{
+		
+		int pid = fork();
+		int status = 0;
+
+		if (pid < 0)
+			ExitWithError("Unable to fork process");
+
+		if (pid == 0)
+		{
+			// Child Process, execute the cmd.
+			create_redirect_output(t->outfile);
+			t->outfile = NULL;
+			int sub_exit = execute_trav_cmd(t);
+			exit(sub_exit);
+		}
+
+		if (pid > 0)
+		{
+			wait(&status);
+		}
+
+		exit_status = status;
+	}
+
 	if (t->type == CMD_AND || t->type == CMD_OR || t->type == CMD_SEMICOLON)
 	{
 		int left_result = execute_trav_cmd(t->left);
-		int right_result = EXIT_FAILURE;
-
 		if (t->type == CMD_AND && left_result == EXIT_SUCCESS)
-			right_result = execute_trav_cmd(t->right);
+			exit_status = execute_trav_cmd(t->right);
 
 		if (t->type == CMD_OR && left_result != EXIT_SUCCESS)
-			right_result = execute_trav_cmd(t->right);
+			exit_status = execute_trav_cmd(t->right);
 
 		if (t->type == CMD_SEMICOLON)
-			right_result = execute_trav_cmd(t->right);
-
-		return right_result;
+			exit_status = execute_trav_cmd(t->right);
 	}
 
 	if (t->type == CMD_SUBSHELL)
@@ -256,15 +291,18 @@ int execute_trav_cmd(SHELLCMD *t)
 			wait(&status);
 		}
 
-		return status;
+		exit_status = status;
 	}
 
 	if (t->type == CMD_COMMAND)
 	{
-		return execute_node(t);
+		exit_status = execute_node(t);
 	}
 
-	return EXIT_SUCCESS;
+	if (file != 0)
+		close(file);
+
+	return exit_status;
 }
 
 int execute_shellcmd(SHELLCMD* t)
@@ -287,6 +325,8 @@ int execute_shellcmd(SHELLCMD* t)
 		int sec_duration = (tvalAfter.tv_sec - tvalBefore.tv_sec) * 1000;
 		int usec_duration = (tvalAfter.tv_usec - tvalBefore.tv_usec) / 1000;
 		int ms_duration = sec_duration + usec_duration;
+
+		// TODO: Print this to stderr instead.
 		printf("COMMAND TIME: %ims\n", ms_duration);
 	}
 
