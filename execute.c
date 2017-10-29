@@ -227,13 +227,36 @@ int execute_trav_cmd(SHELLCMD *t)
 		if (t->type == CMD_AND && left_result == EXIT_SUCCESS)
 			right_result = execute_trav_cmd(t->right);
 
-		if (t->type == CMD_OR && left_result == EXIT_FAILURE)
+		if (t->type == CMD_OR && left_result != EXIT_SUCCESS)
 			right_result = execute_trav_cmd(t->right);
 
 		if (t->type == CMD_SEMICOLON)
 			right_result = execute_trav_cmd(t->right);
 
 		return right_result;
+	}
+
+	if (t->type == CMD_SUBSHELL)
+	{
+		int pid = fork();
+		int status = 0;
+
+		if (pid < 0)
+			ExitWithError("Unable to fork process");
+
+		if (pid == 0)
+		{
+			// Child Process, execute the cmd.
+			int sub_exit = execute_trav_cmd(t->left);
+			exit(sub_exit);
+		}
+
+		if (pid > 0)
+		{
+			wait(&status);
+		}
+
+		return status;
 	}
 
 	if (t->type == CMD_COMMAND)
