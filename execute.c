@@ -235,14 +235,14 @@ void create_redirect_input(char* file_name)
 
 int execute_trav_cmd(SHELLCMD *t)
 {
-	// print_shellcmd(t);
-	// printf("\n");
+	print_shellcmd(t);
+	printf("\n");
 	// Traverse and execute each command
-	int file = 0;
 	int exit_status = EXIT_SUCCESS;
 
 	if (t->infile != NULL)
 	{
+
 		int pid = fork();
 		int status = 0;
 
@@ -261,6 +261,9 @@ int execute_trav_cmd(SHELLCMD *t)
 		if (pid > 0)
 		{
 			wait(&status);
+			// TODO: Figure out why we need to do this. 
+			// The return seems to allow the app to run normally.
+			return status;
 		}
 
 		exit_status = status;
@@ -332,9 +335,6 @@ int execute_trav_cmd(SHELLCMD *t)
 	{
 		exit_status = execute_node(t);
 	}
-
-	if (file != 0)
-		close(file);
 
 	return exit_status;
 }
