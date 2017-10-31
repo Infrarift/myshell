@@ -217,10 +217,19 @@ int execute_node(SHELLCMD *t)
 	return exit_status;
 }
 
-void create_redirect_output(char* file_name)
+void create_redirect_output(char* file_name, bool append)
 {
-	int file = open(file_name, O_CREAT | O_WRONLY | O_TRUNC);
+	int file = append ? 
+		open(file_name, O_CREAT | O_WRONLY | O_APPEND) :
+		open(file_name, O_CREAT | O_WRONLY | O_TRUNC);
 	dup2(file, 1);
+	close(file);
+}
+
+void create_redirect_input(char* file_name)
+{
+	int file = open(file_name, O_CREAT | O_RDONLY);
+	dup2(file, 0);
 	close(file);
 }
 
@@ -231,6 +240,31 @@ int execute_trav_cmd(SHELLCMD *t)
 	// Traverse and execute each command
 	int file = 0;
 	int exit_status = EXIT_SUCCESS;
+
+	if (t->infile != NULL)
+	{
+		int pid = fork();
+		int status = 0;
+
+		if (pid < 0)
+			ExitWithError("Unable to fork process");
+
+		if (pid == 0)
+		{
+			// Child Process, execute the cmd.
+			create_redirect_input(t->infile);
+			t->infile = NULL;
+			int sub_exit = execute_trav_cmd(t);
+			exit(sub_exit);
+		}
+
+		if (pid > 0)
+		{
+			wait(&status);
+		}
+
+		exit_status = status;
+	}
 
 	if (t->outfile != NULL)
 	{
@@ -244,7 +278,7 @@ int execute_trav_cmd(SHELLCMD *t)
 		if (pid == 0)
 		{
 			// Child Process, execute the cmd.
-			create_redirect_output(t->outfile);
+			create_redirect_output(t->outfile, t->append);
 			t->outfile = NULL;
 			int sub_exit = execute_trav_cmd(t);
 			exit(sub_exit);
