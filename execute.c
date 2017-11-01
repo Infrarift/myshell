@@ -3,7 +3,6 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <fcntl.h>
 
 /*
    CITS2002 Project 2 2017
@@ -61,6 +60,60 @@ int call_ext_process(char* process_name, char* exe_argv[])
 		wait(&status);
 	}
 	return status;
+}
+
+int execute_shell_script(char* file_path)
+{
+	printf("EXECUTE SHELL SCRIPT\n");
+
+	int status = 0;
+	int pid = fork();
+
+	if (pid == 0)
+	{
+		printf("CHILD OPEN\n");
+		interactive = false;
+		int in = open(file_path, O_RDONLY);
+		dup2(in, 0);
+		close(in);
+		// exit(0);
+	}
+
+	if (pid > 0)
+	{
+		wait(&status);
+		printf("PARENT END\n");
+		return status;
+	}
+
+	return 0;
+}
+
+int execute_or_script(char* file_path, char* exe_argv[])
+{
+	int exe_status = access(file_path, X_OK);
+	int r_status = access(file_path, R_OK);
+	// printf("Access Status: %s: X: %i R: %i\n", file_path, exe_status, r_status);
+	if (exe_status == 0) {
+		int stat = call_ext_process(file_path, exe_argv);
+		printf("EXE STATUS: %i\n", stat);
+		if (stat == 0)
+		{
+			return stat;
+		} else if(r_status == 0)
+		{
+			return execute_shell_script(file_path);
+		}
+		return -1;
+	} else
+	{
+		if (r_status == 0)
+		{
+			return execute_shell_script(file_path);
+		}
+	}
+
+	return -1;
 }
 
 void join_str(char* dest, char* str1, char* str2)
@@ -184,8 +237,8 @@ int execute_node(SHELLCMD *t)
 	}
 
 	// Direct reference command (begins with /)
-	if (cmd_name[0] == '/')
-		exit_status = call_ext_process(cmd_name, t->argv);
+	if (cmd_name[0] == '/' || (cmd_name[0] == '.'))
+		exit_status = execute_or_script(cmd_name, t->argv);
 	else
 	{
 		char* new_str = malloc(strlen(PATH) + 1);
@@ -204,7 +257,7 @@ int execute_node(SHELLCMD *t)
 			// printf("%s\n", paths[i]);
 			char dest[500];
 			join_str(dest, paths[i], cmd_name);
-			int exit_status = call_ext_process(dest, t->argv);
+			int exit_status = execute_or_script(dest, t->argv);
 			if (exit_status == EXIT_SUCCESS)
 			{
 				return exit_status;
