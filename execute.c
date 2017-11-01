@@ -235,8 +235,8 @@ void create_redirect_input(char* file_name)
 
 int execute_trav_cmd(SHELLCMD *t)
 {
-	print_shellcmd(t);
-	printf("\n");
+	// print_shellcmd(t);
+	// printf("\n");
 	// Traverse and execute each command
 	int exit_status = EXIT_SUCCESS;
 
@@ -334,6 +334,45 @@ int execute_trav_cmd(SHELLCMD *t)
 	if (t->type == CMD_COMMAND)
 	{
 		exit_status = execute_node(t);
+	}
+
+	if (t->type == CMD_PIPE)
+	{
+
+		int status = 0;
+
+		// Fork
+		int child_pid = fork();
+		if (child_pid == 0)
+		{
+			int fd[2];
+			pipe(fd);
+
+			int pid = fork();
+			if (pid == 0) {
+				// Write End
+				dup2(fd[1], 1);
+				close(fd[0]);
+				int sub_exit = execute_trav_cmd(t->left);
+				exit(sub_exit);
+			}
+
+			if (pid > 0)
+			{
+				// Read End
+				dup2(fd[0], 0);
+				close(fd[1]);
+				wait(&status);
+				int sub_exit = execute_trav_cmd(t->right);
+				exit(sub_exit);
+			}
+		}
+
+		if (child_pid > 0)
+		{
+			wait(&status);
+			return status;
+		}
 	}
 
 	return exit_status;
