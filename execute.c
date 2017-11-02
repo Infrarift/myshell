@@ -11,22 +11,22 @@
    Date:		date-of-submission
  */
 
-// -------------------------------------------------------------------
-
-//  THIS FUNCTION SHOULD TRAVERSE THE COMMAND-TREE and EXECUTE THE COMMANDS
-//  THAT IT HOLDS, RETURNING THE APPROPRIATE EXIT-STATUS.
-//  READ print_shellcmd0() IN globals.c TO SEE HOW TO TRAVERSE THE COMMAND-TREE
+#define NUM_PATHS 1000
+#define MAX_PATH_LENGTH 255
+#define EXIT_UNKNOWN 99
+#define EXIT_CANNOT_EXECUTE 100
 
 int prev_exit_status = EXIT_SUCCESS;
 bool activate_timer = false;
 bool time_next_command = false;
+bool g_timer_ready = false;
+bool g_timer_active = false;
+struct timeval g_tval_start, g_tval_end;
 
-
-void ExitWithError(char* message)
-{
-	// perror(message);
-	exit(EXIT_FAILURE);
-}
+char* g_shell_script_path;
+char* g_ext_process_name;
+char** g_ext_argv;
+int g_pipe_fd[2];
 
 void split(char* str, const char* delimiter, char* result[])
 {
@@ -40,181 +40,131 @@ void split(char* str, const char* delimiter, char* result[])
 	}
 }
 
-int call_ext_process(char* process_name, char* exe_argv[])
+char* copy_str(char* target, char* soruce)
 {
-	int pid = fork();
-	int status = 0;
-
-	// printf("Process ID: %d\n", pid);
-	if (pid < 0)
-		ExitWithError("Unable to fork process");
-
-	if (pid == 0)
+	while (*soruce != '\0')
 	{
-		execv(process_name, exe_argv);
-		ExitWithError("Unable to execute new process");
+		*target = *soruce;
+		target++;
+		soruce++;
 	}
 
-	if (pid > 0)
-	{
-		wait(&status);
-	}
-	return status;
+	return target;
 }
 
-int execute_shell_script(char* file_path)
+void join_path(char* dest, char* str1, char* str2)
 {
-	printf("EXECUTE SHELL SCRIPT\n");
-
-	int status = 0;
-	int pid = fork();
-
-	if (pid == 0)
-	{
-		printf("CHILD OPEN\n");
-		interactive = false;
-		int in = open(file_path, O_RDONLY);
-		dup2(in, 0);
-		close(in);
-		// exit(0);
-	}
-
-	if (pid > 0)
-	{
-		wait(&status);
-		printf("PARENT END\n");
-		return status;
-	}
-
-	return 0;
-}
-
-int execute_or_script(char* file_path, char* exe_argv[])
-{
-	int exe_status = access(file_path, X_OK);
-	int r_status = access(file_path, R_OK);
-	// printf("Access Status: %s: X: %i R: %i\n", file_path, exe_status, r_status);
-	if (exe_status == 0)
-	{
-		int stat = call_ext_process(file_path, exe_argv);
-		printf("EXE STATUS: %i\n", stat);
-		if (stat == 0)
-		{
-			return stat;
-		}
-		else if (r_status == 0)
-		{
-			return execute_shell_script(file_path);
-		}
-		return -1;
-	}
-	else
-	{
-		if (r_status == 0)
-		{
-			return execute_shell_script(file_path);
-		}
-	}
-
-	return -1;
-}
-
-void join_str(char* dest, char* str1, char* str2)
-{
-	while (*str1 != '\0')
-	{
-		*dest = *str1;
-		dest++;
-		str1++;
-	}
-
+	dest = copy_str(dest, str1);
 	*dest = '/';
 	dest++;
-
-	while (*str2 != '\0')
-
-	{
-		*dest = *str2;
-		dest++;
-		str2++;
-	}
-
+	dest = copy_str(dest, str2);
 	*dest = '\0';
 }
 
-char* get_cmd_name(SHELLCMD* t)
+int get_search_paths(char* path, char* target, SHELLCMD* t, int path_function(SHELLCMD* cmd, char* f_path))
 {
-	return t->argv[0];
+	char* path_copy = malloc(strlen(path) + 1);
+	strcpy(path_copy, path);
+
+	char** paths = malloc(NUM_PATHS);
+	split(path_copy, ":", paths);
+
+	int result = EXIT_FAILURE;
+
+	for (int i = 0; i < NUM_PATHS; i++)
+	{
+		if (paths[i] == NULL)
+			break;
+
+		char dest[MAX_PATH_LENGTH];
+		join_path(dest, paths[i], target);
+		result = path_function(t, dest);
+		if (result != EXIT_UNKNOWN)
+			break;
+	}
+
+	free(paths);
+	free(path_copy);
+	return result;
 }
+
+// ----------------------------------------------------------
 
 bool is_internal_cmd(SHELLCMD* t)
 {
 	char* internal_cmds[3] = {"exit", "cd", "time"};
-	char* cmd_name = get_cmd_name(t);
-
+	char* cmd_name = t->argv[0];
 	for (int i = 0; i < 3; i++)
 	{
 		if (strcmp(cmd_name, internal_cmds[i]) == 0)
-		{
 			return true;
-		}
 	}
 	return false;
 }
 
 void execute_internal_exit(SHELLCMD* t)
 {
-	if (t->argc <= 2)
-	{
-		int exit_code = t->argc == 2 ? atoi(t->argv[1]) : prev_exit_status;
-		exit(exit_code);
-	}
+	int exit_code = t->argc >= 2 ? atoi(t->argv[1]) : prev_exit_status;
+	exit(exit_code);
+}
+
+int run_chdir(SHELLCMD* t, char* f_path)
+{
+	return chdir(f_path);
 }
 
 int execute_internal_cd(SHELLCMD* t)
 {
-	if (t->argc <= 2)
-	{
-		char* target_dir = t->argc == 2 ? t->argv[1] : HOME;
-		int result = EXIT_FAILURE;
-		if (target_dir[0] == '/')
-			result = chdir(target_dir);
-		else
-		{
-			char* new_str = malloc(strlen(CDPATH) + 1);
-			strcpy(new_str, CDPATH);
+	char* target_dir = t->argc >= 2 ? t->argv[1] : HOME;
+	int result;
 
-			int path_size = 1000;
-			char** paths = malloc(path_size);
-			split(new_str, ":", paths);
-			for (int i = 0; i < path_size; i++)
-			{
-				if (paths[i] == NULL)
-					break;
+	if (target_dir[0] == '/')
+		result = chdir(target_dir);
+	else
+		result = get_search_paths(CDPATH, target_dir, t, &run_chdir);
 
-				char dest[100];
-				join_str(dest, paths[i], target_dir);
-				result = chdir(dest);
-				if (result == EXIT_SUCCESS)
-					break;
-			}
-			free(paths);
-			free(new_str);
-		}
-		return result;
-	}
-	return EXIT_FAILURE;
+	if (result != EXIT_SUCCESS)
+		perror(target_dir);
+
+	return result;
 }
 
 void execute_internal_time()
 {
-	printf("INTERNAL TIME\n");
-	activate_timer = true;
+	g_timer_ready = true;
+}
+
+void start_timer()
+{
+	if (g_timer_ready)
+	{
+		gettimeofday(&g_tval_start, NULL);
+		g_timer_active = true;
+		g_timer_ready = false;
+	}
+}
+
+void stop_timer()
+{
+	if (!g_timer_active)
+		return;
+	gettimeofday(&g_tval_end, NULL);
+	int sec_duration = (g_tval_end.tv_sec - g_tval_start.tv_sec) * 1000;
+	int usec_duration = (g_tval_end.tv_usec - g_tval_start.tv_usec) / 1000;
+	int ms_duration = sec_duration + usec_duration;
+	g_timer_active = false;
+	fprintf(stderr, "%imsec\n", ms_duration);
+}
+
+void clear_timer()
+{
+	g_timer_active = false;
+	g_timer_ready = false;
 }
 
 int execute_internal_command(SHELLCMD* t)
 {
-	char* cmd_name = get_cmd_name(t);
+	char* cmd_name = t->argv[0];
 	if (strcmp(cmd_name, "cd") == 0)
 		execute_internal_cd(t);
 
@@ -227,94 +177,7 @@ int execute_internal_command(SHELLCMD* t)
 	return EXIT_SUCCESS;
 }
 
-
-int execute_node(SHELLCMD* t)
-{
-	char* cmd_name = t->argv[0];
-	int exit_status = 0;
-
-	// Check if node is an internal command
-	if (is_internal_cmd(t))
-	{
-		exit_status = execute_internal_command(t);
-		return exit_status;
-	}
-
-	// Direct reference command (begins with /)
-	if (cmd_name[0] == '/' || (cmd_name[0] == '.'))
-		exit_status = execute_or_script(cmd_name, t->argv);
-	else
-	{
-		char* new_str = malloc(strlen(PATH) + 1);
-		strcpy(new_str, PATH);
-
-		int path_size = 1000;
-		char** paths = malloc(path_size);
-		split(new_str, ":", paths);
-		for (int i = 0; i < path_size; i++)
-		{
-			if (paths[i] == NULL)
-			{
-				// printf("%s\n", "BREAK");
-				break;
-			}
-
-			// printf("%s\n", paths[i]);
-			char dest[500];
-			join_str(dest, paths[i], cmd_name);
-			int exit_status = execute_or_script(dest, t->argv);
-			if (exit_status == EXIT_SUCCESS)
-			{
-				return exit_status;
-			}
-		}
-		free(paths);
-		free(new_str);
-		return EXIT_FAILURE;
-	}
-	return exit_status;
-}
-
-void create_redirect_output(char* file_name, bool append)
-{
-	int file = append ?
-		           open(file_name, O_CREAT | O_WRONLY | O_APPEND) :
-		           open(file_name, O_CREAT | O_WRONLY | O_TRUNC);
-	dup2(file, 1);
-	close(file);
-}
-
-void create_redirect_input(char* file_name)
-{
-	int file = open(file_name, O_CREAT | O_RDONLY);
-	dup2(file, 0);
-	close(file);
-}
-
-int in_file(SHELLCMD* cmd)
-{
-	printf("IN FUNCTION\n");
-	create_redirect_input(cmd->infile);
-	cmd->infile = NULL;
-	int sub_exit = execute_shellcmd(cmd);
-	exit(sub_exit);
-}
-
-int out_file(SHELLCMD* cmd)
-{
-	// Child Process, execute the cmd.
-	create_redirect_output(cmd->outfile, cmd->append);
-	cmd->outfile = NULL;
-	int sub_exit = execute_shellcmd(cmd);
-	exit(sub_exit);
-}
-
-int wait_for_child(SHELLCMD* cmd)
-{
-	int status = EXIT_SUCCESS;
-	wait(&status);
-	return status;
-}
+// ----------------------------------------------------------
 
 int fork_and_execute(SHELLCMD* t, int child_function(SHELLCMD* cmd), int parent_function(SHELLCMD* cmd))
 {
@@ -322,114 +185,178 @@ int fork_and_execute(SHELLCMD* t, int child_function(SHELLCMD* cmd), int parent_
 	int exit_status = EXIT_SUCCESS;
 
 	if (pid < 0)
-		ExitWithError("Unable to fork process");
+		exit(EXIT_FAILURE);
 
 	if (pid == 0)
-		child_function(t);
+		exit_status = child_function(t);
 
 	if (pid > 0)
-		parent_function(t);
+		exit_status = parent_function(t);
 
 	return exit_status;
 }
 
-int subshell(SHELLCMD* t)
+int call_ext_process(SHELLCMD* t)
 {
-	// Child Process, execute the cmd.
+	execv(g_ext_process_name, g_ext_argv);
+	exit(EXIT_CANNOT_EXECUTE);
+}
+
+int wait_for_child(SHELLCMD* t)
+{
+	int status = EXIT_SUCCESS;
+	wait(&status);
+	return status;
+}
+
+int read_file_to_input(SHELLCMD* t)
+{
+	interactive = false;
+	int fd_read = open(g_shell_script_path, O_RDONLY);
+	dup2(fd_read, 0);
+	close(fd_read);
+	return EXIT_SUCCESS;
+}
+
+int run_shell_script(char* file_path)
+{
+	// printf("RUN SHELL SCRTIPT\n");
+	g_shell_script_path = file_path;
+	return fork_and_execute(NULL, &read_file_to_input, &wait_for_child);
+}
+
+int run_cmd(char* path, char* exe_argv[])
+{
+	int x_status = access(path, X_OK);
+	int r_status = access(path, R_OK);
+
+	if (x_status == 0)
+	{
+		g_ext_process_name = path;
+		g_ext_argv = exe_argv;
+		int result = fork_and_execute(NULL, &call_ext_process, &wait_for_child);
+		if (WEXITSTATUS(result) != EXIT_CANNOT_EXECUTE)
+			return result;
+	}
+
+	return r_status == 0 ? run_shell_script(path) : EXIT_UNKNOWN;
+}
+
+int run_cmd_at_path(SHELLCMD* t, char* path)
+{
+	return run_cmd(path, t->argv);
+}
+
+int execute_cmd_node(SHELLCMD* t)
+{
+	start_timer();
+	char* cmd_name = t->argv[0];
+	int exit_status;
+
+	if (is_internal_cmd(t))
+	{
+		exit_status = execute_internal_command(t);
+	}
+	else
+	{
+		if (strchr(cmd_name, '/') != NULL)
+			exit_status = run_cmd(cmd_name, t->argv);
+		else
+			exit_status = get_search_paths(PATH, cmd_name, t, &run_cmd_at_path);
+	}
+
+	if (exit_status == EXIT_UNKNOWN)
+		perror("Unable to execute command");
+
+	stop_timer();
+	prev_exit_status = exit_status;
+	return exit_status;
+}
+
+int redirect_in(SHELLCMD* t)
+{
+	int file = open(t->infile, O_CREAT | O_RDONLY);
+	dup2(file, 0);
+	close(file);
+
+	t->infile = NULL;
+	int sub_exit = execute_shellcmd(t);
+	exit(sub_exit);
+}
+
+int redirect_out(SHELLCMD* t)
+{
+	int file = t->append ?
+		           open(t->outfile, O_CREAT | O_WRONLY | O_APPEND) :
+		           open(t->outfile, O_CREAT | O_WRONLY | O_TRUNC);
+	dup2(file, 1);
+	close(file);
+
+	t->outfile = NULL;
+	int sub_exit = execute_shellcmd(t);
+	exit(sub_exit);
+}
+
+int run_subshell(SHELLCMD* t)
+{
 	int sub_exit = execute_shellcmd(t->left);
 	exit(sub_exit);
 }
 
-int fd[2];
-
-int pipe_writer(SHELLCMD* t)
+int run_pipe_writer(SHELLCMD* t)
 {
-	// Write End
-	dup2(fd[1], 1);
-	close(fd[0]);
+	dup2(g_pipe_fd[1], 1);
+	close(g_pipe_fd[0]);
 	int sub_exit = execute_shellcmd(t->left);
 	exit(sub_exit);
 }
 
-int pipe_reader(SHELLCMD* t)
+int run_pipe_reader(SHELLCMD* t)
 {
 	int status;
-	// Read End
-	dup2(fd[0], 0);
-	close(fd[1]);
+	dup2(g_pipe_fd[0], 0);
+	close(g_pipe_fd[1]);
 	wait(&status);
 	int sub_exit = execute_shellcmd(t->right);
 	exit(sub_exit);
 }
 
-int pipe_cmd(SHELLCMD* t)
+int execute_pipe_node(SHELLCMD* t)
 {
-	pipe(fd);
-	return fork_and_execute(t, &pipe_writer, &pipe_reader);
-}
-
-int execute_trav_cmd(SHELLCMD* t)
-{
-	// Traverse and execute each command
-	if (t->infile != NULL)
-		return fork_and_execute(t, &in_file, &wait_for_child);
-
-	if (t->outfile != NULL)
-		return fork_and_execute(t, &out_file, &wait_for_child);
-
-	if (t->type == CMD_SUBSHELL)
-		return fork_and_execute(t, &subshell, &wait_for_child);
-
-	if (t->type == CMD_COMMAND)
-		return execute_node(t);
-
-	if (t->type == CMD_PIPE)
-		return fork_and_execute(t, &pipe_cmd, &wait_for_child);
-
-	int left_result = execute_trav_cmd(t->left);
-
-	if (t->type == CMD_AND && left_result == EXIT_SUCCESS)
-		return execute_trav_cmd(t->right);
-
-	if (t->type == CMD_OR && left_result != EXIT_SUCCESS)
-		return execute_trav_cmd(t->right);
-
-	if (t->type == CMD_SEMICOLON)
-		return execute_trav_cmd(t->right);
-
-	return EXIT_SUCCESS;
+	pipe(g_pipe_fd);
+	return fork_and_execute(t, &run_pipe_writer, &run_pipe_reader);
 }
 
 int execute_shellcmd(SHELLCMD* t)
 {
-	struct timeval tvalBefore, tvalAfter;
-	if (time_next_command)
-	{
-		gettimeofday(&tvalBefore, NULL);
-	}
-
 	if (t == NULL)
-		prev_exit_status = EXIT_FAILURE;
-	else
-		prev_exit_status = execute_trav_cmd(t);
+		return EXIT_FAILURE;
 
-	if (time_next_command)
-	{
-		gettimeofday(&tvalAfter, NULL);
-		time_next_command = false;
-		int sec_duration = (tvalAfter.tv_sec - tvalBefore.tv_sec) * 1000;
-		int usec_duration = (tvalAfter.tv_usec - tvalBefore.tv_usec) / 1000;
-		int ms_duration = sec_duration + usec_duration;
+	if (t->infile != NULL)
+		return fork_and_execute(t, &redirect_in, &wait_for_child);
 
-		// TODO: Print this to stderr instead.
-		printf("COMMAND TIME: %ims\n", ms_duration);
-	}
+	if (t->outfile != NULL)
+		return fork_and_execute(t, &redirect_out, &wait_for_child);
 
-	if (activate_timer)
-	{
-		time_next_command = true;
-		activate_timer = false;
-	}
+	if (t->type == CMD_SUBSHELL)
+		return fork_and_execute(t, &run_subshell, &wait_for_child);
 
-	return prev_exit_status;
+	if (t->type == CMD_COMMAND)
+		return execute_cmd_node(t);
+
+	if (t->type == CMD_PIPE)
+		return fork_and_execute(t, &execute_pipe_node, &wait_for_child);
+
+	int left_result = execute_shellcmd(t->left);
+
+	if (t->type == CMD_AND && left_result == EXIT_SUCCESS)
+		return execute_shellcmd(t->right);
+
+	if (t->type == CMD_OR && left_result != EXIT_SUCCESS)
+		return execute_shellcmd(t->right);
+
+	if (t->type == CMD_SEMICOLON)
+		return execute_shellcmd(t->right);
+
+	return EXIT_SUCCESS;
 }
