@@ -94,18 +94,21 @@ int execute_or_script(char* file_path, char* exe_argv[])
 	int exe_status = access(file_path, X_OK);
 	int r_status = access(file_path, R_OK);
 	// printf("Access Status: %s: X: %i R: %i\n", file_path, exe_status, r_status);
-	if (exe_status == 0) {
+	if (exe_status == 0)
+	{
 		int stat = call_ext_process(file_path, exe_argv);
 		printf("EXE STATUS: %i\n", stat);
 		if (stat == 0)
 		{
 			return stat;
-		} else if(r_status == 0)
+		}
+		else if (r_status == 0)
 		{
 			return execute_shell_script(file_path);
 		}
 		return -1;
-	} else
+	}
+	else
 	{
 		if (r_status == 0)
 		{
@@ -139,14 +142,14 @@ void join_str(char* dest, char* str1, char* str2)
 	*dest = '\0';
 }
 
-char *get_cmd_name(SHELLCMD *t)
+char* get_cmd_name(SHELLCMD* t)
 {
 	return t->argv[0];
 }
 
-bool is_internal_cmd(SHELLCMD *t)
+bool is_internal_cmd(SHELLCMD* t)
 {
-	char* internal_cmds[3] = { "exit", "cd", "time" };
+	char* internal_cmds[3] = {"exit", "cd", "time"};
 	char* cmd_name = get_cmd_name(t);
 
 	for (int i = 0; i < 3; i++)
@@ -159,17 +162,19 @@ bool is_internal_cmd(SHELLCMD *t)
 	return false;
 }
 
-void execute_internal_exit(SHELLCMD *t)
+void execute_internal_exit(SHELLCMD* t)
 {
-	if (t->argc <= 2) {
+	if (t->argc <= 2)
+	{
 		int exit_code = t->argc == 2 ? atoi(t->argv[1]) : prev_exit_status;
 		exit(exit_code);
 	}
 }
 
-int execute_internal_cd(SHELLCMD *t)
+int execute_internal_cd(SHELLCMD* t)
 {
-	if (t->argc <= 2) {
+	if (t->argc <= 2)
+	{
 		char* target_dir = t->argc == 2 ? t->argv[1] : HOME;
 		int result = EXIT_FAILURE;
 		if (target_dir[0] == '/')
@@ -180,7 +185,7 @@ int execute_internal_cd(SHELLCMD *t)
 			strcpy(new_str, CDPATH);
 
 			int path_size = 1000;
-			char **paths = malloc(path_size);
+			char** paths = malloc(path_size);
 			split(new_str, ":", paths);
 			for (int i = 0; i < path_size; i++)
 			{
@@ -207,9 +212,9 @@ void execute_internal_time()
 	activate_timer = true;
 }
 
-int execute_internal_command(SHELLCMD *t)
+int execute_internal_command(SHELLCMD* t)
 {
-	char *cmd_name = get_cmd_name(t);
+	char* cmd_name = get_cmd_name(t);
 	if (strcmp(cmd_name, "cd") == 0)
 		execute_internal_cd(t);
 
@@ -223,8 +228,7 @@ int execute_internal_command(SHELLCMD *t)
 }
 
 
-
-int execute_node(SHELLCMD *t)
+int execute_node(SHELLCMD* t)
 {
 	char* cmd_name = t->argv[0];
 	int exit_status = 0;
@@ -245,11 +249,12 @@ int execute_node(SHELLCMD *t)
 		strcpy(new_str, PATH);
 
 		int path_size = 1000;
-		char **paths = malloc(path_size);
+		char** paths = malloc(path_size);
 		split(new_str, ":", paths);
 		for (int i = 0; i < path_size; i++)
 		{
-			if (paths[i] == NULL) {
+			if (paths[i] == NULL)
+			{
 				// printf("%s\n", "BREAK");
 				break;
 			}
@@ -272,9 +277,9 @@ int execute_node(SHELLCMD *t)
 
 void create_redirect_output(char* file_name, bool append)
 {
-	int file = append ? 
-		open(file_name, O_CREAT | O_WRONLY | O_APPEND) :
-		open(file_name, O_CREAT | O_WRONLY | O_TRUNC);
+	int file = append ?
+		           open(file_name, O_CREAT | O_WRONLY | O_APPEND) :
+		           open(file_name, O_CREAT | O_WRONLY | O_TRUNC);
 	dup2(file, 1);
 	close(file);
 }
@@ -286,149 +291,113 @@ void create_redirect_input(char* file_name)
 	close(file);
 }
 
-int execute_trav_cmd(SHELLCMD *t)
+int in_file(SHELLCMD* cmd)
 {
-	// print_shellcmd(t);
-	// printf("\n");
-	// Traverse and execute each command
+	printf("IN FUNCTION\n");
+	create_redirect_input(cmd->infile);
+	cmd->infile = NULL;
+	int sub_exit = execute_shellcmd(cmd);
+	exit(sub_exit);
+}
+
+int out_file(SHELLCMD* cmd)
+{
+	// Child Process, execute the cmd.
+	create_redirect_output(cmd->outfile, cmd->append);
+	cmd->outfile = NULL;
+	int sub_exit = execute_shellcmd(cmd);
+	exit(sub_exit);
+}
+
+int wait_for_child(SHELLCMD* cmd)
+{
+	int status = EXIT_SUCCESS;
+	wait(&status);
+	return status;
+}
+
+int fork_and_execute(SHELLCMD* t, int child_function(SHELLCMD* cmd), int parent_function(SHELLCMD* cmd))
+{
+	int pid = fork();
 	int exit_status = EXIT_SUCCESS;
 
-	if (t->infile != NULL)
-	{
+	if (pid < 0)
+		ExitWithError("Unable to fork process");
 
-		int pid = fork();
-		int status = 0;
+	if (pid == 0)
+		child_function(t);
 
-		if (pid < 0)
-			ExitWithError("Unable to fork process");
-
-		if (pid == 0)
-		{
-			// Child Process, execute the cmd.
-			create_redirect_input(t->infile);
-			t->infile = NULL;
-			int sub_exit = execute_trav_cmd(t);
-			exit(sub_exit);
-		}
-
-		if (pid > 0)
-		{
-			wait(&status);
-			// TODO: Figure out why we need to do this. 
-			// The return seems to allow the app to run normally.
-			return status;
-		}
-
-		exit_status = status;
-	}
-
-	if (t->outfile != NULL)
-	{
-		
-		int pid = fork();
-		int status = 0;
-
-		if (pid < 0)
-			ExitWithError("Unable to fork process");
-
-		if (pid == 0)
-		{
-			// Child Process, execute the cmd.
-			create_redirect_output(t->outfile, t->append);
-			t->outfile = NULL;
-			int sub_exit = execute_trav_cmd(t);
-			exit(sub_exit);
-		}
-
-		if (pid > 0)
-		{
-			wait(&status);
-		}
-
-		exit_status = status;
-	}
-
-	if (t->type == CMD_AND || t->type == CMD_OR || t->type == CMD_SEMICOLON)
-	{
-		int left_result = execute_trav_cmd(t->left);
-		if (t->type == CMD_AND && left_result == EXIT_SUCCESS)
-			exit_status = execute_trav_cmd(t->right);
-
-		if (t->type == CMD_OR && left_result != EXIT_SUCCESS)
-			exit_status = execute_trav_cmd(t->right);
-
-		if (t->type == CMD_SEMICOLON)
-			exit_status = execute_trav_cmd(t->right);
-	}
-
-	if (t->type == CMD_SUBSHELL)
-	{
-		int pid = fork();
-		int status = 0;
-
-		if (pid < 0)
-			ExitWithError("Unable to fork process");
-
-		if (pid == 0)
-		{
-			// Child Process, execute the cmd.
-			int sub_exit = execute_trav_cmd(t->left);
-			exit(sub_exit);
-		}
-
-		if (pid > 0)
-		{
-			wait(&status);
-		}
-
-		exit_status = status;
-	}
-
-	if (t->type == CMD_COMMAND)
-	{
-		exit_status = execute_node(t);
-	}
-
-	if (t->type == CMD_PIPE)
-	{
-
-		int status = 0;
-
-		// Fork
-		int child_pid = fork();
-		if (child_pid == 0)
-		{
-			int fd[2];
-			pipe(fd);
-
-			int pid = fork();
-			if (pid == 0) {
-				// Write End
-				dup2(fd[1], 1);
-				close(fd[0]);
-				int sub_exit = execute_trav_cmd(t->left);
-				exit(sub_exit);
-			}
-
-			if (pid > 0)
-			{
-				// Read End
-				dup2(fd[0], 0);
-				close(fd[1]);
-				wait(&status);
-				int sub_exit = execute_trav_cmd(t->right);
-				exit(sub_exit);
-			}
-		}
-
-		if (child_pid > 0)
-		{
-			wait(&status);
-			return status;
-		}
-	}
+	if (pid > 0)
+		parent_function(t);
 
 	return exit_status;
+}
+
+int subshell(SHELLCMD* t)
+{
+	// Child Process, execute the cmd.
+	int sub_exit = execute_shellcmd(t->left);
+	exit(sub_exit);
+}
+
+int fd[2];
+
+int pipe_writer(SHELLCMD* t)
+{
+	// Write End
+	dup2(fd[1], 1);
+	close(fd[0]);
+	int sub_exit = execute_shellcmd(t->left);
+	exit(sub_exit);
+}
+
+int pipe_reader(SHELLCMD* t)
+{
+	int status;
+	// Read End
+	dup2(fd[0], 0);
+	close(fd[1]);
+	wait(&status);
+	int sub_exit = execute_shellcmd(t->right);
+	exit(sub_exit);
+}
+
+int pipe_cmd(SHELLCMD* t)
+{
+	pipe(fd);
+	return fork_and_execute(t, &pipe_writer, &pipe_reader);
+}
+
+int execute_trav_cmd(SHELLCMD* t)
+{
+	// Traverse and execute each command
+	if (t->infile != NULL)
+		return fork_and_execute(t, &in_file, &wait_for_child);
+
+	if (t->outfile != NULL)
+		return fork_and_execute(t, &out_file, &wait_for_child);
+
+	if (t->type == CMD_SUBSHELL)
+		return fork_and_execute(t, &subshell, &wait_for_child);
+
+	if (t->type == CMD_COMMAND)
+		return execute_node(t);
+
+	if (t->type == CMD_PIPE)
+		return fork_and_execute(t, &pipe_cmd, &wait_for_child);
+
+	int left_result = execute_trav_cmd(t->left);
+
+	if (t->type == CMD_AND && left_result == EXIT_SUCCESS)
+		return execute_trav_cmd(t->right);
+
+	if (t->type == CMD_OR && left_result != EXIT_SUCCESS)
+		return execute_trav_cmd(t->right);
+
+	if (t->type == CMD_SEMICOLON)
+		return execute_trav_cmd(t->right);
+
+	return EXIT_SUCCESS;
 }
 
 int execute_shellcmd(SHELLCMD* t)
