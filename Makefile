@@ -1,4 +1,5 @@
-# A Makefile to build our 'myshell' project.
+# JAKRIN JUANGBHANICH
+# MyShell MakeFile
 
 PROJECT = myshell
 HEADERS = $(PROJECT).h

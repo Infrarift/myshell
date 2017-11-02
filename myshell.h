@@ -51,6 +51,7 @@ typedef	struct sc {
 extern SHELLCMD	*parse_shellcmd(FILE *);	// in parser.c
 extern void	free_shellcmd(SHELLCMD *);	// in parser.c
 extern int	execute_shellcmd(SHELLCMD *);	// in execute.c
+extern int execute_cmd_node(int argc, char* argv[]);	// in execute.c
 
 
 /* The global variable HOME points to a directory name stored as a
